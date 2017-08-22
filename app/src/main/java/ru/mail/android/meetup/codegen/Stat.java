@@ -5,22 +5,30 @@ import com.google.android.gms.analytics.HitBuilders;
 
 public class Stat {
 
+    private static void flurry(String category, String action) {
+        FlurryAgent.logEvent(category + "_" + action);
+    }
+
+    private static void ga(String category, String action) {
+        GaTracker.get().send(new HitBuilders.EventBuilder()
+                .setCategory(category)
+                .setAction(action)
+                .build());
+    }
+
+    private static void all(String category, String action) {
+        flurry(category, action);
+        ga(category, action);
+    }
+
     public static class Main {
 
         public static void fabClicked() {
-            FlurryAgent.logEvent("Main_fabClicked");
-            GaTracker.get().send(new HitBuilders.EventBuilder()
-                    .setCategory("Main")
-                    .setAction("fabClicked")
-                    .build());
+            all("Main", "fabClicked");
         }
 
         public static void settingsClicked() {
-            FlurryAgent.logEvent("Main_settingsClicked");
-            GaTracker.get().send(new HitBuilders.EventBuilder()
-                    .setCategory("Main")
-                    .setAction("settingsClicked")
-                    .build());
+            all("Main", "settingsClicked");
         }
 
     }
