@@ -26,13 +26,7 @@ public class MainActivity extends AppCompatActivity {
         fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                FlurryAgent.logEvent("Main_fabClicked");
-                GaTracker.get().send(
-                        new HitBuilders.EventBuilder()
-                                .setCategory("Main")
-                                .setAction("fabClicked")
-                                .build()
-                );
+                Stat.Main.fabClicked();
                 Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
                         .setAction("Action", null).show();
             }
@@ -55,13 +49,7 @@ public class MainActivity extends AppCompatActivity {
 
         //noinspection SimplifiableIfStatement
         if (id == R.id.action_settings) {
-            FlurryAgent.logEvent("Main_settingsClicked");
-            GaTracker.get().send(
-                    new HitBuilders.EventBuilder()
-                            .setCategory("Main")
-                            .setAction("settingsClicked")
-                            .build()
-            );
+            Stat.Main.settingsClicked();
             return true;
         }
 
