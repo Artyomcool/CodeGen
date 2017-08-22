@@ -10,6 +10,8 @@ import android.view.Menu;
 import android.view.MenuItem;
 
 import com.flurry.android.FlurryAgent;
+import com.google.android.gms.analytics.GoogleAnalytics;
+import com.google.android.gms.analytics.HitBuilders;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -25,6 +27,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
                 FlurryAgent.logEvent("Main_fabClicked");
+                GaTracker.get().send(
+                        new HitBuilders.EventBuilder()
+                                .setCategory("Main")
+                                .setAction("fabClicked")
+                                .build()
+                );
                 Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
                         .setAction("Action", null).show();
             }
@@ -48,6 +56,12 @@ public class MainActivity extends AppCompatActivity {
         //noinspection SimplifiableIfStatement
         if (id == R.id.action_settings) {
             FlurryAgent.logEvent("Main_settingsClicked");
+            GaTracker.get().send(
+                    new HitBuilders.EventBuilder()
+                            .setCategory("Main")
+                            .setAction("settingsClicked")
+                            .build()
+            );
             return true;
         }
 
