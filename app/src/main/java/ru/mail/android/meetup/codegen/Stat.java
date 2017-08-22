@@ -5,6 +5,9 @@ import android.util.Log;
 import com.flurry.android.FlurryAgent;
 import com.google.android.gms.analytics.HitBuilders;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class Stat {
 
     private static void flurry(String category, String action) {
@@ -37,8 +40,16 @@ public class Stat {
 
     public static class Main {
 
-        public static void fabClicked() {
-            all();
+        public static void fabClicked(int length) {
+            Map<String, String> params = new HashMap<>();
+            params.put("length", String.valueOf(length));
+            FlurryAgent.logEvent("Main_fabClicked", params);
+
+            GaTracker.get().send(new HitBuilders.EventBuilder()
+                    .setCategory("Main")
+                    .setAction("fabClicked")
+                    .setValue(length)
+                    .build());
         }
 
         public static void settingsClicked() {
