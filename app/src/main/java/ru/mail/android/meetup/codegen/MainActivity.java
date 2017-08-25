@@ -55,6 +55,10 @@ public class MainActivity extends AppCompatActivity {
             StatProxy.send(Stat.Main.class).settingsClicked();
             return true;
         }
+        if (id == R.id.action_complex) {
+            StatProxy.send(Stat.Main.class).someMoreComplexEvent("testType", 100500, true);
+            return true;
+        }
 
         return super.onOptionsItemSelected(item);
     }

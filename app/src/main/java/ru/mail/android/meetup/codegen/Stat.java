@@ -4,11 +4,13 @@ public class Stat {
 
     public interface Main {
 
-        void fabClicked(int length);
+        void fabClicked(@Value("length") int length);
 
         void settingsClicked();
 
-        void someMoreComplexEvent(String type, long duration, boolean important);
+        void someMoreComplexEvent(@Name("type") String type,
+                                  @Value("duration") long duration,
+                                  @Name("important") boolean important);
 
     }
 
