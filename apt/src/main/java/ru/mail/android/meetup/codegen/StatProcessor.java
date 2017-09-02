@@ -18,6 +18,8 @@ import javax.lang.model.element.Modifier;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.MirroredTypeException;
+import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 
@@ -84,6 +86,12 @@ public class StatProcessor extends AbstractProcessor {
             out.println(" {");
             out.println();
 
+            TypeMirror sender = getSender(element);
+            out.print("    private final Sender __sender = new ");
+            out.print(sender);
+            out.println("();");
+            out.println();
+
             for (Element e : element.getEnclosedElements()) {
                 if (e.getKind() == ElementKind.METHOD) {
                     if (e.getModifiers().contains(Modifier.ABSTRACT)) {
@@ -96,6 +104,17 @@ public class StatProcessor extends AbstractProcessor {
         } finally {
             out.close();
         }
+    }
+
+    private TypeMirror getSender(TypeElement element) {
+        TypeMirror sender;
+        try {
+            element.getAnnotation(Statistic.class).value();
+            throw new IllegalStateException("MirroredTypeException should be thrown");
+        } catch (MirroredTypeException e) {
+            sender = e.getTypeMirror();
+        }
+        return sender;
     }
 
     private void generateMethod(ExecutableElement element, PrintWriter out) {
@@ -143,6 +162,8 @@ public class StatProcessor extends AbstractProcessor {
         out.print("\", \"");
         out.print(element.getSimpleName());
         out.println("\", __params);");
+
+        out.println("        __sender.send(__statParams);");
 
         out.println("    }");
         out.println();
