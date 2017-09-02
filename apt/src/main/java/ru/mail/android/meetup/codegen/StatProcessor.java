@@ -10,6 +10,7 @@ import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
 import javax.annotation.processing.SupportedSourceVersion;
 import javax.lang.model.SourceVersion;
+import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
@@ -64,6 +65,18 @@ public class StatProcessor extends AbstractProcessor {
                 out.println();
             }
 
+            String codegenPackage = "ru.mail.android.meetup.codegen";
+            if (packageElement == null || !codegenPackage.equals(packageElement.getSimpleName().toString())) {
+                out.print("import ");
+                out.print(codegenPackage);
+                out.println(".*;");
+            }
+
+            out.println("import java.util.Arrays;");
+            out.println("import java.util.Collections;");
+            out.println("import java.util.List;");
+            out.println();
+
             out.print("public class ");
             out.print(name);
             out.print(element.getKind() == ElementKind.INTERFACE ? " implements " : " extends ");
@@ -102,22 +115,65 @@ public class StatProcessor extends AbstractProcessor {
         List<? extends VariableElement> parameters = element.getParameters();
         if (!parameters.isEmpty()) {
             for (VariableElement p : parameters.subList(0, parameters.size() - 1)) {
-                generateParam(p, out);
+                generateParamDecl(p, out);
                 out.print(", ");
             }
-            generateParam(parameters.get(parameters.size() - 1), out);
+            generateParamDecl(parameters.get(parameters.size() - 1), out);
         }
 
         out.println(") {");
+
+        out.print("        ");
+        out.print("List<StatisticParams.Param> __params = ");
+        if (!parameters.isEmpty()) {
+            out.println("Arrays.asList(");
+            for (VariableElement p : parameters.subList(0, parameters.size() - 1)) {
+                generateParam(p, out);
+                out.println(",");
+            }
+            generateParam(parameters.get(parameters.size() - 1), out);
+            out.println();
+            out.println("        );");
+        } else {
+            out.println("Collections.emptyList();");
+        }
+
+        out.print("        StatisticParams __statParams = new StatisticParams(\"");
+        out.print(element.getEnclosingElement().getSimpleName());
+        out.print("\", \"");
+        out.print(element.getSimpleName());
+        out.println("\", __params);");
+
         out.println("    }");
         out.println();
 
     }
 
-    private void generateParam(VariableElement p, PrintWriter out) {
+    private void generateParamDecl(VariableElement p, PrintWriter out) {
         out.print(p.asType());
         out.print(" ");
         out.print(p);
     }
+
+    private void generateParam(VariableElement p, PrintWriter out) {
+        out.print("                new StatisticParams.Param(\"");
+        out.print(p.getSimpleName());
+        out.print("\", ");
+        out.print(p.getSimpleName());
+
+        for (AnnotationMirror mirror : p.getAnnotationMirrors()) {
+            out.print(", ");
+            generateAnnotation(mirror, out);
+        }
+
+        out.print(")");
+
+    }
+
+    private void generateAnnotation(AnnotationMirror annotationMirror, PrintWriter out) {
+        out.print(annotationMirror.getAnnotationType());
+        out.print(".class");
+    }
+
 
 }
