@@ -2,7 +2,7 @@ package ru.mail.android.meetup.codegen;
 
 public class Stat {
 
-    @Statistic
+    @Statistic(AllSender.class)
     public interface Main {
 
         void fabClicked(@Value("length") int length);
