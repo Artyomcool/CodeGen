@@ -20,7 +20,7 @@ public class AllSender implements Sender {
         GaTracker.get().send(new HitBuilders.EventBuilder()
                 .setCategory(params.getClassName())
                 .setAction(params.getMethodName())
-                .setValue(value == null ? 0 : (Long) value.getValue())
+                .setValue(value == null ? 0 : ((Number) value.getValue()).longValue())
                 .build());
     }
 }
