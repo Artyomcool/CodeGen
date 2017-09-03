@@ -5,13 +5,13 @@ public class Stat {
     @Statistic(AllSender.class)
     public interface Main {
 
-        void fabClicked(@Value("length") int length);
+        void fabClicked(@Value int length);
 
         void settingsClicked();
 
-        void someMoreComplexEvent(@Name("type") String type,
-                                  @Value("duration") long duration,
-                                  @Name("important") boolean important);
+        void someMoreComplexEvent(String type,
+                                  @Value long duration,
+                                  boolean important);
 
     }
 
