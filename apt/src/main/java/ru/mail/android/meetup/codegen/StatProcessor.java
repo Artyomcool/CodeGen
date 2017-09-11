@@ -2,7 +2,10 @@ package ru.mail.android.meetup.codegen;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.processing.AbstractProcessor;
@@ -32,12 +35,31 @@ public class StatProcessor extends AbstractProcessor {
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
         try {
+            Map<TypeElement, List<TypeElement>> rootToNested = new LinkedHashMap<>();
+
             for (TypeElement annotation : annotations) {
                 Set<? extends Element> annotatedElements =
                         roundEnv.getElementsAnnotatedWith(annotation);
                 for (Element element : annotatedElements) {
-                    generate((TypeElement) element);
+                    TypeElement typeElement = (TypeElement) element;
+                    TypeElement root = findRoot(typeElement);
+                    if (typeElement == root) {
+                        processingEnv.getMessager()
+                                .printMessage(Diagnostic.Kind.ERROR, "Can't generate", root);
+                        continue;
+                    }
+                    List<TypeElement> nested = rootToNested.get(root);
+                    if (nested == null) {
+                        rootToNested.put(root, nested = new ArrayList<>());
+                    }
+                    nested.add(typeElement);
                 }
+            }
+
+            for (Map.Entry<TypeElement, List<TypeElement>> entry : rootToNested.entrySet()) {
+                TypeElement root = entry.getKey();
+                List<TypeElement> nested = entry.getValue();
+                generate(root, nested);
             }
         } catch (IOException e) {
             processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "IOException: " + e);
@@ -45,18 +67,24 @@ public class StatProcessor extends AbstractProcessor {
         return true;
     }
 
-    private void generate(TypeElement element) throws IOException {
-        String qualifiedName = element.getQualifiedName() + POSTFIX;
-        PackageElement packageElement = processingEnv.getElementUtils().getPackageOf(element);
-        String nameWithoutPackage = packageElement == null
-                ? qualifiedName
-                : qualifiedName.substring(packageElement.getQualifiedName().toString().length() + 1);
-        String name = nameWithoutPackage.replace('.', '$');
-        String fileName = packageElement == null
-                ? nameWithoutPackage
-                : packageElement.getQualifiedName() + "." + name;
+    private TypeElement findRoot(TypeElement element) {
+        while (true) {
+            Element enclosingElement = element.getEnclosingElement();
+            if (enclosingElement == null || enclosingElement.getKind() == ElementKind.PACKAGE) {
+                return element;
+            }
+            element = (TypeElement) enclosingElement;
+        }
+    }
+
+    private void generate(TypeElement root, List<TypeElement> elements) throws IOException {
+        String rootName = root.getQualifiedName() + POSTFIX;
+        PackageElement packageElement = processingEnv.getElementUtils().getPackageOf(root);
+        String name = packageElement == null
+                ? rootName
+                : rootName.substring(packageElement.getQualifiedName().toString().length() + 1);
         JavaFileObject sourceFile =
-                processingEnv.getFiler().createSourceFile(fileName, element);
+                processingEnv.getFiler().createSourceFile(rootName, root);
         PrintWriter out = new PrintWriter(sourceFile.openWriter());
         try {
 
@@ -74,30 +102,57 @@ public class StatProcessor extends AbstractProcessor {
                 out.println(".*;");
             }
 
-            out.println("import java.util.Arrays;");
-            out.println("import java.util.Collections;");
-            out.println("import java.util.List;");
+            out.println("import java.util.*;");
             out.println();
 
             out.print("public class ");
             out.print(name);
-            out.print(element.getKind() == ElementKind.INTERFACE ? " implements " : " extends ");
-            out.print(element.getQualifiedName());
+            out.print(root.getKind() == ElementKind.INTERFACE ? " implements " : " extends ");
+            out.print(root.getQualifiedName());
             out.println(" {");
             out.println();
 
-            TypeMirror sender = getSender(element);
-            out.print("    private final Sender __sender = new ");
-            out.print(sender);
-            out.println("();");
+            out.println("    private static final Map<Class<?>, Object> __impl = new HashMap<>();");
+            out.println("    static {");
+            for (TypeElement element : elements) {
+                out.print("        __impl.put(");
+                out.print(element.getQualifiedName());
+                out.print(".class, ");
+                out.print("new ");
+                out.print(element.getSimpleName());
+                out.print("());");
+                out.println();
+            }
+            out.println("    }");
             out.println();
 
-            for (Element e : element.getEnclosedElements()) {
-                if (e.getKind() == ElementKind.METHOD) {
-                    if (e.getModifiers().contains(Modifier.ABSTRACT)) {
-                        generateMethod((ExecutableElement) e, out);
+            out.println("    public static <T> T getInstance(Class<T> clazz) {");
+            out.println("        return clazz.cast(__impl.get(clazz));");
+            out.println("    }");
+            out.println();
+
+            for (TypeElement element : elements) {
+                out.print("    private static class ");
+                out.print(element.getSimpleName());
+                out.print(element.getKind() == ElementKind.INTERFACE ? " implements " : " extends ");
+                out.print(element.getQualifiedName());
+                out.println(" {");
+                out.println();
+                TypeMirror sender = getSender(element);
+                out.print("        private final Sender __sender = new ");
+                out.print(sender);
+                out.println("();");
+                out.println();
+
+                for (Element e : element.getEnclosedElements()) {
+                    if (e.getKind() == ElementKind.METHOD) {
+                        if (e.getModifiers().contains(Modifier.ABSTRACT)) {
+                            generateMethod((ExecutableElement) e, out);
+                        }
                     }
                 }
+                out.println("    }");
+                out.println();
             }
 
             out.println("}");
@@ -118,8 +173,8 @@ public class StatProcessor extends AbstractProcessor {
     }
 
     private void generateMethod(ExecutableElement element, PrintWriter out) {
-        out.println("    @Override");
-        out.print("    ");
+        out.println("        @Override");
+        out.print("        ");
         if (element.getModifiers().contains(Modifier.PUBLIC)) {
             out.print("public ");
         } else if (element.getModifiers().contains(Modifier.PROTECTED)) {
@@ -142,7 +197,7 @@ public class StatProcessor extends AbstractProcessor {
 
         out.println(") {");
 
-        out.print("        ");
+        out.print("            ");
         out.print("List<StatisticParams.Param> __params = ");
         if (!parameters.isEmpty()) {
             out.println("Arrays.asList(");
@@ -152,20 +207,20 @@ public class StatProcessor extends AbstractProcessor {
             }
             generateParam(parameters.get(parameters.size() - 1), out);
             out.println();
-            out.println("        );");
+            out.println("            );");
         } else {
             out.println("Collections.emptyList();");
         }
 
-        out.print("        StatisticParams __statParams = new StatisticParams(\"");
+        out.print("            StatisticParams __statParams = new StatisticParams(\"");
         out.print(element.getEnclosingElement().getSimpleName());
         out.print("\", \"");
         out.print(element.getSimpleName());
         out.println("\", __params);");
 
-        out.println("        __sender.send(__statParams);");
+        out.println("            __sender.send(__statParams);");
 
-        out.println("    }");
+        out.println("        }");
         out.println();
 
     }
