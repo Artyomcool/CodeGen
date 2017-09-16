@@ -1,12 +1,29 @@
 package ru.mail.android.meetup.codegen;
 
+import com.squareup.javapoet.ClassName;
+import com.squareup.javapoet.CodeBlock;
+import com.squareup.javapoet.FieldSpec;
+import com.squareup.javapoet.JavaFile;
+import com.squareup.javapoet.MethodSpec;
+import com.squareup.javapoet.ParameterSpec;
+import com.squareup.javapoet.ParameterizedTypeName;
+import com.squareup.javapoet.TypeSpec;
+import com.squareup.javapoet.TypeVariableName;
+import com.squareup.javapoet.WildcardTypeName;
+
 import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Spliterator;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.RoundEnvironment;
@@ -18,19 +35,19 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.Name;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.MirroredTypeException;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
-import javax.tools.JavaFileObject;
 
 @SupportedAnnotationTypes("ru.mail.android.meetup.codegen.Statistic")
 @SupportedSourceVersion(SourceVersion.RELEASE_8)
 public class StatProcessor extends AbstractProcessor {
 
-    public static final String POSTFIX = "$$$StatGenerated";
+    private static final String POSTFIX = "$$$StatGenerated";
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
@@ -78,87 +95,92 @@ public class StatProcessor extends AbstractProcessor {
     }
 
     private void generate(TypeElement root, List<TypeElement> elements) throws IOException {
-        String rootName = root.getQualifiedName() + POSTFIX;
         PackageElement packageElement = processingEnv.getElementUtils().getPackageOf(root);
-        String name = packageElement == null
-                ? rootName
-                : rootName.substring(packageElement.getQualifiedName().toString().length() + 1);
-        JavaFileObject sourceFile =
-                processingEnv.getFiler().createSourceFile(rootName, root);
-        PrintWriter out = new PrintWriter(sourceFile.openWriter());
-        try {
 
-            if (packageElement != null) {
-                out.print("package ");
-                out.print(packageElement.getQualifiedName());
-                out.println(";");
-                out.println();
-            }
+        String packageName = packageElement == null
+                ? ""
+                : packageElement.getQualifiedName().toString();
 
-            String codegenPackage = "ru.mail.android.meetup.codegen";
-            if (packageElement == null || !codegenPackage.equals(packageElement.getSimpleName().toString())) {
-                out.print("import ");
-                out.print(codegenPackage);
-                out.println(".*;");
-            }
+        ClassName generatedClassName = ClassName.get(packageName, root.getSimpleName() + POSTFIX);
+        TypeSpec.Builder rootBuilder = TypeSpec.classBuilder(generatedClassName)
+                .addModifiers(Modifier.PUBLIC);
+        addSuperType(rootBuilder, root);
 
-            out.println("import java.util.*;");
-            out.println();
+        rootBuilder.addField(getClassMapField());
 
-            out.print("public class ");
-            out.print(name);
-            out.print(root.getKind() == ElementKind.INTERFACE ? " implements " : " extends ");
-            out.print(root.getQualifiedName());
-            out.println(" {");
-            out.println();
+        TypeVariableName t = TypeVariableName.get("T");
+        ParameterizedTypeName classOfT = ParameterizedTypeName.get(ClassName.get(Class.class), t);
 
-            out.println("    private static final Map<Class<?>, Object> __impl = new HashMap<>();");
-            out.println("    static {");
-            for (TypeElement element : elements) {
-                out.print("        __impl.put(");
-                out.print(element.getQualifiedName());
-                out.print(".class, ");
-                out.print("new ");
-                out.print(element.getSimpleName());
-                out.print("());");
-                out.println();
-            }
-            out.println("    }");
-            out.println();
+        rootBuilder.addMethod(MethodSpec.methodBuilder("getInstance")
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .addTypeVariable(t)
+                .returns(t)
+                .addParameter(classOfT, "clazz")
+                .addStatement("return clazz.cast(__impl.get(clazz))")
+                .build()
+        );
 
-            out.println("    public static <T> T getInstance(Class<T> clazz) {");
-            out.println("        return clazz.cast(__impl.get(clazz));");
-            out.println("    }");
-            out.println();
+        CodeBlock.Builder staticBlock = CodeBlock.builder();
+        for (TypeElement element : elements) {
+            TypeSpec.Builder builder = TypeSpec.classBuilder(element.getSimpleName().toString())
+                    .addModifiers(Modifier.PRIVATE, Modifier.STATIC);
+            addSuperType(builder, element);
 
-            for (TypeElement element : elements) {
-                out.print("    private static class ");
-                out.print(element.getSimpleName());
-                out.print(element.getKind() == ElementKind.INTERFACE ? " implements " : " extends ");
-                out.print(element.getQualifiedName());
-                out.println(" {");
-                out.println();
-                TypeMirror sender = getSender(element);
-                out.print("        private final Sender __sender = new ");
-                out.print(sender);
-                out.println("();");
-                out.println();
+            builder.addField(
+                    FieldSpec.builder(Sender.class, "__sender", Modifier.PRIVATE, Modifier.FINAL)
+                            .initializer("new $T()", getSender(element))
+                            .build()
+            );
 
-                for (Element e : element.getEnclosedElements()) {
-                    if (e.getKind() == ElementKind.METHOD) {
-                        if (e.getModifiers().contains(Modifier.ABSTRACT)) {
-                            generateMethod((ExecutableElement) e, out);
-                        }
+            for (Element e : element.getEnclosedElements()) {
+                if (e.getKind() == ElementKind.METHOD) {
+                    if (e.getModifiers().contains(Modifier.ABSTRACT)) {
+                        generateMethod(builder, (ExecutableElement) e);
                     }
                 }
-                out.println("    }");
-                out.println();
             }
 
-            out.println("}");
-        } finally {
-            out.close();
+            TypeSpec typeSpec = builder.build();
+            rootBuilder.addType(typeSpec);
+            staticBlock.addStatement("__impl.put($T.class, new $L())", element, typeSpec.name);
         }
+
+        rootBuilder.addStaticBlock(staticBlock.build());
+
+        TypeSpec typeSpec = rootBuilder.build();
+
+        JavaFile.builder(packageName, typeSpec)
+                .indent("    ")
+                .build()
+                .writeTo(processingEnv.getFiler());
+    }
+
+    private void addSuperType(TypeSpec.Builder builder, TypeElement superype) {
+        ClassName rootClassName = ClassName.get(superype);
+        if (superype.getKind() == ElementKind.INTERFACE) {
+            builder.addSuperinterface(rootClassName);
+        } else {
+            builder.superclass(rootClassName);
+        }
+    }
+
+    private FieldSpec getClassMapField() {
+        ParameterizedTypeName classWildcard = ParameterizedTypeName.get(
+                ClassName.get(Class.class), WildcardTypeName.subtypeOf(Object.class)
+        );
+        ParameterizedTypeName mapClassToObject = ParameterizedTypeName.get(
+                ClassName.get(Map.class), classWildcard, ClassName.OBJECT
+        );
+
+        FieldSpec.Builder builder = FieldSpec.builder(
+                mapClassToObject,
+                "__impl",
+                Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL
+        );
+
+        return builder
+                .initializer("new $T<>()", HashMap.class)
+                .build();
     }
 
     private TypeMirror getSender(TypeElement element) {
@@ -172,84 +194,67 @@ public class StatProcessor extends AbstractProcessor {
         return sender;
     }
 
-    private void generateMethod(ExecutableElement element, PrintWriter out) {
-        out.println("        @Override");
-        out.print("        ");
-        if (element.getModifiers().contains(Modifier.PUBLIC)) {
-            out.print("public ");
-        } else if (element.getModifiers().contains(Modifier.PROTECTED)) {
-            out.print("protected ");
+    private Set<Modifier> notAbstract(Set<Modifier> modifiers) {
+        modifiers = new HashSet<>(modifiers);
+        modifiers.remove(Modifier.ABSTRACT);
+        return modifiers;
+    }
+
+    private Iterable<ParameterSpec> toParamSpec(List<? extends VariableElement> params) {
+        return params.stream().map(ParameterSpec::get).collect(Collectors.toList());
+    }
+
+    private static <E> boolean join(Iterable<? extends E> iterable, Consumer<E> action, Consumer<E> between) {
+        Spliterator<? extends E> spliterator = iterable.spliterator();
+
+        if (spliterator.tryAdvance(action)) {
+            spliterator.forEachRemaining(between.andThen(action));
+            return true;
         }
+        return false;
+    }
 
-        out.print(element.getReturnType());
-        out.print(" ");
-        out.print(element.getSimpleName());
-        out.print("(");
-
+    private void generateMethod(TypeSpec.Builder builder, ExecutableElement element) {
         List<? extends VariableElement> parameters = element.getParameters();
-        if (!parameters.isEmpty()) {
-            for (VariableElement p : parameters.subList(0, parameters.size() - 1)) {
-                generateParamDecl(p, out);
-                out.print(", ");
-            }
-            generateParamDecl(parameters.get(parameters.size() - 1), out);
-        }
 
-        out.println(") {");
+        CodeBlock.Builder code = CodeBlock.builder();
+        CodeBlock.Builder params = CodeBlock.builder();
 
-        out.print("            ");
-        out.print("List<StatisticParams.Param> __params = ");
-        if (!parameters.isEmpty()) {
-            out.println("Arrays.asList(");
-            for (VariableElement p : parameters.subList(0, parameters.size() - 1)) {
-                generateParam(p, out);
-                out.println(",");
-            }
-            generateParam(parameters.get(parameters.size() - 1), out);
-            out.println();
-            out.println("            );");
+        if (parameters.isEmpty()) {
+            params.add("$T.emptyList()", Collections.class);
         } else {
-            out.println("Collections.emptyList();");
+            CodeBlock.Builder pList = CodeBlock.builder();
+            join(parameters,
+                    p -> {
+                        String pName = p.getSimpleName().toString();
+                        pList.add("new $T($S, $L", StatisticParams.Param.class, pName, pName);
+                        for (AnnotationMirror t : p.getAnnotationMirrors()) {
+                            pList.add(",$W");
+                            pList.add("$T.class", t.getAnnotationType());
+                        }
+                        pList.add(")");
+                    },
+                    p -> pList.add(",\n")
+            );
+            params.add("$T.asList($>\n$L$<\n)", Arrays.class, pList.build());
         }
+        code.addStatement("$T<$T> __params = $L", List.class, StatisticParams.Param.class, params.build());
 
-        out.print("            StatisticParams __statParams = new StatisticParams(\"");
-        out.print(element.getEnclosingElement().getSimpleName());
-        out.print("\", \"");
-        out.print(element.getSimpleName());
-        out.println("\", __params);");
+        Name className = element.getEnclosingElement().getSimpleName();
+        Name methodName = element.getSimpleName();
 
-        out.println("            __sender.send(__statParams);");
+        code.addStatement("$T __statParams = new $T($S, $S, __params)",
+                StatisticParams.class, StatisticParams.class, className, methodName);
 
-        out.println("        }");
-        out.println();
+        code.addStatement("__sender.send(__statParams)");
 
+        builder.addMethod(MethodSpec.methodBuilder(methodName.toString())
+                .returns(ClassName.get(element.getReturnType()))
+                .addParameters(toParamSpec(parameters))
+                .addModifiers(notAbstract(element.getModifiers()))
+                .addAnnotation(Override.class)
+                .addCode(code.build())
+                .build());
     }
-
-    private void generateParamDecl(VariableElement p, PrintWriter out) {
-        out.print(p.asType());
-        out.print(" ");
-        out.print(p);
-    }
-
-    private void generateParam(VariableElement p, PrintWriter out) {
-        out.print("                new StatisticParams.Param(\"");
-        out.print(p.getSimpleName());
-        out.print("\", ");
-        out.print(p.getSimpleName());
-
-        for (AnnotationMirror mirror : p.getAnnotationMirrors()) {
-            out.print(", ");
-            generateAnnotation(mirror, out);
-        }
-
-        out.print(")");
-
-    }
-
-    private void generateAnnotation(AnnotationMirror annotationMirror, PrintWriter out) {
-        out.print(annotationMirror.getAnnotationType());
-        out.print(".class");
-    }
-
 
 }
